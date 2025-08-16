@@ -3,52 +3,73 @@ document.addEventListener("DOMContentLoaded", () => {
   const activitySelect = document.getElementById("activity");
   const signupForm = document.getElementById("signup-form");
   const messageDiv = document.getElementById("message");
-  const searchInput = document.getElementById("activity-search");
-  // Category filter removed
   const sortSelect = document.getElementById("activity-sort");
+  const searchInput = document.getElementById("activity-search");
 
-  // Store activities globally for filtering/sorting
   let allActivities = {};
 
-  // Function to render activities with filters/sorting
+  // --- Utility to parse first time from schedule ---
+  function extractTimeValue(str) {
+    if (!str) return 0;
+    const match = str.match(/(\d{1,2}):(\d{2})\s*([APMapm]{2})/);
+    if (!match) return 0;
+    let hours = parseInt(match[1], 10);
+    const minutes = parseInt(match[2], 10);
+    const ampm = match[3].toUpperCase();
+    if (ampm === "PM" && hours !== 12) hours += 12;
+    if (ampm === "AM" && hours === 12) hours = 0;
+    return hours * 60 + minutes;
+  }
+
   function renderActivities() {
     activitiesList.innerHTML = "";
     activitySelect.innerHTML = "";
-    const search = searchInput.value.toLowerCase();
-  const sortBy = sortSelect.value;
 
-    // Get filtered activities
-    let filtered = Object.entries(allActivities).filter(([name, details]) => {
-      // Search filter
-      if (search && !name.toLowerCase().includes(search) && !details.description.toLowerCase().includes(search)) {
-        return false;
-      }
-      return true;
-    });
+    const search = searchInput.value.trim().toLowerCase();
+    const sortBy = sortSelect.value;
 
-    // Sort activities
+    let activityArr = Object.entries(allActivities);
+
+    // Sort
     if (sortBy === "name") {
-      filtered.sort((a, b) => a[0].localeCompare(b[0]));
+      activityArr.sort((a, b) => a[0].localeCompare(b[0]));
     } else if (sortBy === "time") {
-      filtered.sort((a, b) => {
-        // Try to sort by schedule string
-        return (a[1].schedule || "").localeCompare(b[1].schedule || "");
-      });
+      activityArr.sort(
+        (a, b) =>
+          extractTimeValue(a[1].schedule) - extractTimeValue(b[1].schedule)
+      );
     }
 
+    // Filter
+    let filtered = activityArr.filter(([name, details]) => {
+      if (!search) return true;
+      return (
+        name.toLowerCase().includes(search) ||
+        (details.description &&
+          details.description.toLowerCase().includes(search)) ||
+        (details.schedule &&
+          details.schedule.toLowerCase().includes(search))
+      );
+    });
+
+    // Render
     filtered.forEach(([name, details]) => {
       const activityCard = document.createElement("div");
       activityCard.className = "activity-card";
-      const spotsLeft = details.max_participants - details.participants.length;
+
+      const spotsLeft =
+        details.max_participants - (details.participants?.length || 0);
+
       const participantsHTML =
-        details.participants.length > 0
+        details.participants && details.participants.length > 0
           ? `<div class="participants-section">
               <h5>Participants:</h5>
               <ul class="participants-list">
                 ${details.participants
                   .map(
                     (email) =>
-                      `<li><span class="participant-email">${email}</span><button class="delete-btn" data-activity="${name}" data-email="${email}">❌</button></li>`
+                      `<li><span class="participant-email">${email}</span>
+                       <button class="delete-btn" data-activity="${name}" data-email="${email}">❌</button></li>`
                   )
                   .join("")}
               </ul>
@@ -57,8 +78,8 @@ document.addEventListener("DOMContentLoaded", () => {
 
       activityCard.innerHTML = `
         <h4>${name}</h4>
-        <p>${details.description}</p>
-        <p><strong>Schedule:</strong> ${details.schedule}</p>
+        <p>${details.description || ""}</p>
+        <p><strong>Schedule:</strong> ${details.schedule || "N/A"}</p>
         <p><strong>Availability:</strong> ${spotsLeft} spots left</p>
         <div class="participants-container">
           ${participantsHTML}
@@ -66,42 +87,42 @@ document.addEventListener("DOMContentLoaded", () => {
       `;
       activitiesList.appendChild(activityCard);
 
-      // Add option to select dropdown
       const option = document.createElement("option");
       option.value = name;
       option.textContent = name;
       activitySelect.appendChild(option);
     });
 
-    // Add event listeners to delete buttons
+    // Add delete listeners
     document.querySelectorAll(".delete-btn").forEach((button) => {
       button.addEventListener("click", handleUnregister);
     });
   }
 
-  // Function to fetch activities from API
+  // Fetch activities
   async function fetchActivities() {
     try {
       const response = await fetch("/activities");
       const activities = await response.json();
       allActivities = activities;
-
-  // Remove category dropdown population
-  renderActivities();
+      renderActivities();
     } catch (error) {
-      activitiesList.innerHTML = "<p>Failed to load activities. Please try again later.</p>";
+      activitiesList.innerHTML =
+        "<p>Failed to load activities. Please try again later.</p>";
       console.error("Error fetching activities:", error);
     }
   }
 
-  // Handle unregister functionality
+  // Unregister
   async function handleUnregister(event) {
     const button = event.target;
     const activity = button.getAttribute("data-activity");
     const email = button.getAttribute("data-email");
     try {
       const response = await fetch(
-        `/activities/${encodeURIComponent(activity)}/unregister?email=${encodeURIComponent(email)}`,
+        `/activities/${encodeURIComponent(activity)}/unregister?email=${encodeURIComponent(
+          email
+        )}`,
         { method: "DELETE" }
       );
       const result = await response.json();
@@ -114,7 +135,7 @@ document.addEventListener("DOMContentLoaded", () => {
         messageDiv.className = "error";
       }
       messageDiv.classList.remove("hidden");
-      setTimeout(() => { messageDiv.classList.add("hidden"); }, 5000);
+      setTimeout(() => messageDiv.classList.add("hidden"), 5000);
     } catch (error) {
       messageDiv.textContent = "Failed to unregister. Please try again.";
       messageDiv.className = "error";
@@ -123,14 +144,16 @@ document.addEventListener("DOMContentLoaded", () => {
     }
   }
 
-  // Handle form submission
+  // Signup
   signupForm.addEventListener("submit", async (event) => {
     event.preventDefault();
     const email = document.getElementById("email").value;
     const activity = document.getElementById("activity").value;
     try {
       const response = await fetch(
-        `/activities/${encodeURIComponent(activity)}/signup?email=${encodeURIComponent(email)}`,
+        `/activities/${encodeURIComponent(
+          activity
+        )}/signup?email=${encodeURIComponent(email)}`,
         { method: "POST" }
       );
       const result = await response.json();
@@ -144,7 +167,7 @@ document.addEventListener("DOMContentLoaded", () => {
         messageDiv.className = "error";
       }
       messageDiv.classList.remove("hidden");
-      setTimeout(() => { messageDiv.classList.add("hidden"); }, 5000);
+      setTimeout(() => messageDiv.classList.add("hidden"), 5000);
     } catch (error) {
       messageDiv.textContent = "Failed to sign up. Please try again.";
       messageDiv.className = "error";
@@ -153,10 +176,10 @@ document.addEventListener("DOMContentLoaded", () => {
     }
   });
 
-  // Add filter/sort/search event listeners
+  // Search/sort listeners
   searchInput.addEventListener("input", renderActivities);
   sortSelect.addEventListener("change", renderActivities);
 
-  // Initialize app
+  // Init
   fetchActivities();
 });
